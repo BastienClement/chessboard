@@ -22,7 +22,9 @@
 	SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 -->
 
-<meta charset="utf-8"> 
+<meta charset="utf-8">
+<meta name="viewport" content="width=1020, initial-scale=1, maximum-scale=1, user-scalable=no">
+
 <title>Chessboard</title>
 
 <script type="text/javascript" src="/socket.io/socket.io.js"></script>
@@ -78,11 +80,14 @@
 
 	var mouseX, mouseY;
 	var dragging_piece;
+	
+	function update_mouse_location(e) {
+		mouseX = e.pageX - board.offsetLeft;
+		mouseY = e.pageY - board.offsetTop;
+	}
 
-	document.onmousemove = function(e) {
-		mouseX = e.x - board.offsetLeft;
-		mouseY = e.y - board.offsetTop;
-		
+	document.ontouchmove = document.onmousemove = function(e) {
+		update_mouse_location(e);
 		if(dragging_piece) {
 			dragging_piece.move(mouseX, mouseY);
 		}
@@ -180,8 +185,8 @@
 		this.draw();
 		this.place(-1, -1, true);
 		
-		this.canvas.onmousedown = this.pick.bind(this);
-		this.canvas.onmouseup   = this.drop.bind(this);
+		this.canvas.ontouchstart = this.canvas.onmousedown = this.pick.bind(this);
+		this.canvas.ontouchend   = this.canvas.onmouseup   = this.drop.bind(this);
 	}
 
 	var pieces_chars = {
@@ -212,7 +217,8 @@
 		ctx.fillText(pieces_chars[this.piece], 39, 63);
 	};
 
-	Piece.prototype.pick = function() {
+	Piece.prototype.pick = function(e) {
+		update_mouse_location(e);
 		if(!sync) return false;
 		
 		throttle = 0;
@@ -223,7 +229,7 @@
 		return false;
 	};
 
-	Piece.prototype.drop = function() {
+	Piece.prototype.drop = function(e) {
 		dragging_piece = false;
 		
 		var x = Math.floor(mouseX / 80);
@@ -234,6 +240,8 @@
 	}
 
 	Piece.prototype.place = function(x, y, local) {
+		if(typeof x != "number" || typeof y != "number") return;
+		
 		if(Math.min(x, y) < 0 || Math.max(x, y) > 7) {
 			if(!local) send_event("PLACE", this.id, -1, -1);
 			BoardSide.place(this, local);
@@ -262,6 +270,8 @@
 	}
 
 	Piece.prototype.move = function(x, y, local) {
+		if(typeof x != "number" || typeof y != "number") return;
+	
 		if(!local) {
 			if(throttle++ % 2 == 0) {
 				send_event("MOVE", this.id, x, y);

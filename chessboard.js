@@ -82,10 +82,12 @@ var state = {
 
 io.sockets.on("connection", function (socket) {
 	socket.on("MOVE", function(id, x, y) {
+		if(typeof x != "number" || typeof y != "number") return;
 		socket.broadcast.emit("MOVE", id, x, y);
 	});
 	
 	socket.on("PLACE", function(id, x, y) {
+		if(typeof x != "number" || typeof y != "number") return;
 		state[id] = (x > -1) ? [x, y] : false;
 		socket.broadcast.emit("PLACE", id, x, y);
 	});
