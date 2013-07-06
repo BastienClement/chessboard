@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<!--
+	Copyright (c) 2013 Bastien Clément
+
+	Permission is hereby granted, free of charge, to any person obtaining a
+	copy of this software and associated documentation files (the
+	"Software"), to deal in the Software without restriction, including
+	without limitation the rights to use, copy, modify, merge, publish,
+	distribute, sublicense, and/or sell copies of the Software, and to
+	permit persons to whom the Software is furnished to do so, subject to
+	the following conditions:
+
+	The above copyright notice and this permission notice shall be included
+	in all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+	OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+	IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+	CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+	TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+	SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+
+<meta charset="utf-8"> 
+<title>Chessboard</title>
+
+<script type="text/javascript" src="/socket.io/socket.io.js"></script>
+
+<style>
+	#board {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: 640px;
+		height: 640px;
+		margin-top: -320px;
+		margin-left: -320px;
+		border: 1px solid #000;
+	}
+	
+	#background {
+		position: absolute;
+		top: 0px;
+		left: 0px;
+		width: 640px;
+		height: 640px;
+		z-index: 2;
+		background: #DDD;
+	}
+	
+	.piece {
+		width: 80px;
+		height: 80px;
+		position: absolute;
+		z-index: 5;
+		visibility: hidden;
+	}
+</style>
+
+<div id="board">
+	<canvas width="640px" height="640px" id="background"></canvas>
+</div>
+
+<script type="text/javascript">
+	// Socket
+	
+	var socket = io.connect(document.location);
+	var sync = false;
+
+	function send_event(event, id, x, y) {
+		socket.emit(event, id, x, y);
+	}
+
+	// Board
+
+	var board = document.getElementById("board");
+
+	var mouseX, mouseY;
+	var dragging_piece;
+
+	document.onmousemove = function(e) {
+		mouseX = e.x - board.offsetLeft;
+		mouseY = e.y - board.offsetTop;
+		
+		if(dragging_piece) {
+			dragging_piece.move(mouseX, mouseY);
+		}
+	}
+
+	var grid = [];
+	for(var r = 0; r < 8; r++) {
+		grid[r] = [];
+		for(var c = 0; c < 8; c++) {
+			grid[r][c] = false;
+		}
+	}
+
+	// Background
+
+	var background = document.getElementById("background");
+	var background_ctx = background.getContext("2d");
+
+	background_ctx.fillStyle = "#333"
+	for(var x = 0; x < 8; x++) {
+		for(var y = 0; y < 4; y++) {
+			background_ctx.fillRect(160 * (y) + 80 * ((x + 1) % 2), 80 * x, 80, 80);
+		}
+	}
+
+	// Board sides
+
+	function BoardSide(xOffset) {
+		this.xOffset = xOffset;
+		this.slots = [];
+	}
+
+	BoardSide.prototype.place = function(piece) {
+		if(piece.onSide) return;
+		
+		for(var i = 0; i < 16; i++) {
+			if(!this.slots[i]) {
+				this.slots[i] = piece;
+				
+				var col = i % 2;
+				var row = Math.floor(i / 2);
+				
+				piece.onSide = true;
+				piece.location(col * 80 + this.xOffset, row * 80);
+				return;
+			}
+		}
+	}
+
+	BoardSide.prototype.take = function(piece) {
+		piece.onSide  = false;
+		for(var i = 0; i < 16; i++) {
+			if(this.slots[i] === piece) {
+				this.slots[i] = false;
+				return;
+			}
+		}
+	}
+
+	var w_bs = new BoardSide(-180);
+	var b_bs = new BoardSide(660);
+
+	BoardSide.place = function(piece) { ((piece.color == "white") ? w_bs : b_bs).place(piece); }
+	BoardSide.take  = function(piece) { ((piece.color == "white") ? w_bs : b_bs).take(piece);  }
+
+	// Piece
+	
+	var pieces = {};
+	var pieces_z = 10;
+	var throttle = 0;
+	
+	function Piece(color, piece, nb) {
+		this.id = color + "_" + piece + nb;
+		
+		if(pieces[this.id]) {
+			throw "Piece is already created: " + this.id;
+		} else {
+			pieces[this.id] = this;
+		}
+			
+		this.color  = color;
+		this.piece  = piece;
+		this.nb     = nb;
+		this.onSide = false;
+		this.x      = 0;
+		this.y      = 0;
+		
+		this.canvas = document.createElement("canvas");
+		board.appendChild(this.canvas);
+		
+		this.canvas.className = "piece";
+		this.canvas.width = 80;
+		this.canvas.height = 80;
+		
+		this.draw();
+		this.place(-1, -1, true);
+		
+		this.canvas.onmousedown = this.pick.bind(this);
+		this.canvas.onmouseup   = this.drop.bind(this);
+	}
+
+	var pieces_chars = {
+		king:   "♚",
+		queen:  "♛",
+		rook:   "♜",
+		bishop: "♝",
+		knight: "♞",
+		pawn:   "♟",
+	};
+
+	Piece.prototype.draw = function() {
+		var ctx = this.canvas.getContext("2d");
+		
+		if(this.color == "white") {
+			ctx.fillStyle = "#fff";
+			ctx.strokeStyle = "#000";
+		} else {
+			ctx.fillStyle = "#000";
+			ctx.strokeStyle = "#fff";
+		}
+		
+		ctx.font = "50pt Arial";
+		ctx.textAlign = "center";
+		ctx.lineWidth = 4;
+		
+		ctx.strokeText(pieces_chars[this.piece], 39, 63);
+		ctx.fillText(pieces_chars[this.piece], 39, 63);
+	};
+
+	Piece.prototype.pick = function() {
+		if(!sync) return false;
+		
+		throttle = 0;
+		this.canvas.style.zIndex = pieces_z++;
+		dragging_piece = this;
+		this.move(mouseX, mouseY);
+		
+		return false;
+	};
+
+	Piece.prototype.drop = function() {
+		dragging_piece = false;
+		
+		var x = Math.floor(mouseX / 80);
+		var y = Math.floor(mouseY / 80);
+		this.place(x, y);
+		
+		return false;
+	}
+
+	Piece.prototype.place = function(x, y, local) {
+		if(Math.min(x, y) < 0 || Math.max(x, y) > 7) {
+			if(!local) send_event("PLACE", this.id, -1, -1);
+			BoardSide.place(this, local);
+		} else {
+			if(!local) send_event("PLACE", this.id, x, y);
+			
+			if(this.onSide) {
+				BoardSide.take(this);
+			}
+			
+			if(grid[this.x][this.y] === this) {
+				grid[this.x][this.y] = false;
+			}
+			
+			this.x = x;
+			this.y = y;
+			
+			if(grid[x][y] && grid[x][y] != this) {
+				grid[x][y].place(-1, -1, local);
+			}
+				
+			grid[x][y] = this;
+			
+			this.location(x * 80, y * 80);
+		}
+	}
+
+	Piece.prototype.move = function(x, y, local) {
+		if(!local) {
+			if(throttle++ % 2 == 0) {
+				send_event("MOVE", this.id, x, y);
+			}
+		}
+		
+		if(this.onSide) {
+			BoardSide.take(this);
+		}
+		
+		this.location(x - 40, y - 40);
+	}
+
+	Piece.prototype.location = function(x, y) {
+		this.canvas.style.left = x + "px";
+		this.canvas.style.top  = y + "px";
+	};
+
+	// Init
+
+	var pieces_models = [
+		["king",   1],
+		["queen",  1],
+		["rook",   2],
+		["bishop", 2],
+		["knight", 2],
+		["pawn",   8]
+	];
+
+	var i = 0;
+	pieces_models.forEach(function(model) {
+		var piece = model[0];
+		var count = model[1];
+		
+		for(var n = 0; n < count; n++) {
+			var p1 = new Piece("white", piece, n);
+			var p2 = new Piece("black", piece, n);
+		}
+		
+		i++;
+	});
+	
+	// Events
+
+	socket.on("MOVE", function(id, x, y) {
+		pieces[id].move(x, y, true);
+	});
+
+	socket.on("PLACE", function(id, x, y) {
+		pieces[id].place(x, y, true);
+	});
+
+	socket.on("RESET", function() {
+		for(var piece in pieces) {
+			pieces[piece].canvas.style.visibility = "hidden";
+			BoardSide.place(pieces[piece]);
+		}
+	});
+
+	socket.on("SYNC", function() {
+		for(var piece in pieces) {
+			pieces[piece].canvas.style.visibility = "visible";
+		}
+		
+		sync = true;
+	});
+</script>

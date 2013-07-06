@@ -1,0 +1,22 @@
+{
+	"name": "Chessboard",
+	"version": "1.0.0",
+	"author": "Bastien Clément <g@ledric.me>",
+	"description": "Very simple chessboard",
+	
+	"scripts": {
+		"start": "node chessboard.js"
+	},
+	
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/galedric/chessboard.git"
+	},
+	
+	"dependencies" : {
+		"express": "*",
+		"socket.io": "*"
+	},
+	
+	"license": "MIT"
+}
