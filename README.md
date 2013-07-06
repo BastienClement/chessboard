@@ -3,20 +3,20 @@ Chessboard
 
 Very simple chessboard built with Node.js and Socket.io.
 
-Setup
------
+1. Setup
+--------
 
-`$ npm install`
+`npm install`
 
-Run
----
+2. Run
+------
 
-`$ npm start` or `$ node chessboard.js`
+`npm start` / `node chessboard.js`
 
-Play
-----
+3. Play
+-------
 
-http://localhost:3129/
+<http://localhost:3129/>
 
 MIT Licensed
 ------------
