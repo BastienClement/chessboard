@@ -23,7 +23,7 @@
 -->
 
 <meta charset="utf-8">
-<meta name="viewport" content="width=1020, user-scalable=no">
+<meta name="viewport" content="width=1180, user-scalable=no">
 
 <title>Chessboard</title>
 
@@ -61,6 +61,14 @@
 		position: absolute;
 		z-index: 5;
 		visibility: hidden;
+	}
+	
+	.piece.side {
+		opacity: 0.5;
+	}
+	
+	.piece.special.side {
+		opacity: 0.1;
 	}
 	
 	.reverse #board, .reverse .piece {
@@ -150,23 +158,37 @@
 
 	// Board sides
 
-	function BoardSide(xOffset) {
+	function BoardSide(xOffset, col, row, bottom) {
 		this.xOffset = xOffset;
-		this.slots = [];
+		this.bottom  = bottom;
+		this.col     = col;
+		this.row     = row;
+		this.slots   = [];
 	}
 
 	BoardSide.prototype.place = function(piece) {
 		if(piece.onSide) return;
 		
-		for(var i = 0; i < 16; i++) {
+		for(var i = 0; i < (this.row * this.col); i++) {
 			if(!this.slots[i]) {
 				this.slots[i] = piece;
 				
-				var col = i % 2;
-				var row = Math.floor(i / 2);
+				piece.x = -1;
+				piece.y = -1;
+				
+				var col = i % this.col;
+				var row = Math.floor(i / this.col);
 				
 				piece.onSide = true;
-				piece.location(col * 80 + this.xOffset, row * 80);
+				piece.canvas.className = piece.cname + " side";
+				
+				var x = col * 80 + this.xOffset;
+				var y = row * 80;
+				if(this.bottom) {
+					y = -y + 560;
+				}
+				
+				piece.location(x, y);
 				return;
 			}
 		}
@@ -174,32 +196,55 @@
 
 	BoardSide.prototype.take = function(piece) {
 		piece.onSide  = false;
-		for(var i = 0; i < 16; i++) {
+		piece.canvas.className = piece.cname;
+		for(var i = 0; i < (this.col * this.row); i++) {
 			if(this.slots[i] === piece) {
-				this.slots[i] = false;
+				this.slots[i] = false;	
 				return;
 			}
 		}
 	}
+	
+	BoardSide.prototype.pack = function() {
+		var change_made;
+		do {
+			change_made = false;
+			for(var i = 1; i < (this.col * this.row); i++) {
+				if(this.slots[i] && !this.slots[i - 1]) {
+					var piece = this.slots[i];
+					BoardSide.take(piece);
+					BoardSide.place(piece);
+					change_made = true;
+				}
+			}
+		} while(change_made);
+	};
 
-	var w_bs = new BoardSide(-180);
-	var b_bs = new BoardSide(660);
+	var w_bs   = new BoardSide(-170, 2, 8, true);
+	var b_bs   = new BoardSide( 650, 2, 8, false);
+	
+	var w_bs_s = new BoardSide(-260, 1, 8, true);
+	var b_bs_s = new BoardSide( 820, 1, 8, false);
 
-	BoardSide.place = function(piece) { ((piece.color == "white") ? w_bs : b_bs).place(piece); }
-	BoardSide.take  = function(piece) { ((piece.color == "white") ? w_bs : b_bs).take(piece);  }
+	BoardSide.place = function(piece) { ((piece.color == "white") ? (piece.special ? w_bs_s : w_bs) : (piece.special ? b_bs_s : b_bs)).place(piece); }
+	BoardSide.take  = function(piece) { ((piece.color == "white") ? (piece.special ? w_bs_s : w_bs) : (piece.special ? b_bs_s : b_bs)).take(piece);  }
+	BoardSide.pack  = function(piece) { w_bs.pack(); b_bs.pack(); w_bs_s.pack(); b_bs_s.pack(); }
 
 	// Piece
 	
 	var pieces = {};
+	var pieces_order = [];
 	var pieces_z = 10;
 	var throttle = 0;
 	
-	function Piece(color, piece, nb) {
-		this.id = color + "_" + piece + nb;
+	function Piece(color, piece, nb, special) {
+		this.id = color + "_" + piece + (special ? "_special" : "") + nb;
+		this.special = !!special;
 		
 		if(pieces[this.id]) {
 			throw "Piece is already created: " + this.id;
 		} else {
+			pieces_order.push(this.id);
 			pieces[this.id] = this;
 		}
 			
@@ -209,11 +254,12 @@
 		this.onSide = false;
 		this.x      = 0;
 		this.y      = 0;
+		this.cname  = "piece" + (special ? " special" : "")
 		
 		this.canvas = document.createElement("canvas");
 		board.appendChild(this.canvas);
 		
-		this.canvas.className = "piece";
+		this.canvas.className = this.cname;
 		this.canvas.width = 80;
 		this.canvas.height = 80;
 		
@@ -237,11 +283,11 @@
 		var ctx = this.canvas.getContext("2d");
 		
 		if(this.color == "white") {
-			ctx.fillStyle = "#fff";
+			ctx.fillStyle = this.special ? "#fec" : "#fff";
 			ctx.strokeStyle = "#222";
 		} else {
 			ctx.fillStyle = "#000";
-			ctx.strokeStyle = "#ddd";
+			ctx.strokeStyle = this.special ? "#fec" : "#ddd";
 		}
 		
 		ctx.font = "50pt Arial";
@@ -287,21 +333,30 @@
 				BoardSide.take(this);
 			}
 			
-			if(grid[this.x][this.y] === this) {
-				grid[this.x][this.y] = false;
+			var old_x = this.x;
+			var old_y = this.y;
+			
+			if(old_x > -1 && grid[old_x][old_y] === this) {
+				grid[old_x][old_y] = false;
 			}
 			
 			this.x = x;
 			this.y = y;
 			
-			if(grid[x][y] && grid[x][y] != this) {
-				grid[x][y].place(-1, -1, local);
+			var dest_piece = grid[x][y];
+			if(dest_piece && dest_piece !== this) {
+				if(dest_piece.color != this.color) {
+					dest_piece.place(-1, -1, local);
+				} else {
+					dest_piece.place(old_x, old_y, local);
+				}
 			}
 				
 			grid[x][y] = this;
-			
 			this.location(x * 80, y * 80);
 		}
+		
+		BoardSide.pack();
 	}
 
 	Piece.prototype.move = function(x, y, local) {
@@ -333,17 +388,23 @@
 		["rook",   2],
 		["bishop", 2],
 		["knight", 2],
-		["pawn",   8]
+		["pawn",   8],
+		
+		["queen",  2, true],
+		["rook",   2, true],
+		["bishop", 2, true],
+		["knight", 2, true]
 	];
 
 	var i = 0;
 	pieces_models.forEach(function(model) {
-		var piece = model[0];
-		var count = model[1];
+		var piece    = model[0];
+		var count    = model[1];
+		var promoted = model[2];
 		
 		for(var n = 0; n < count; n++) {
-			var p1 = new Piece("white", piece, n);
-			var p2 = new Piece("black", piece, n);
+			var p1 = new Piece("white", piece, n, promoted);
+			var p2 = new Piece("black", piece, n, promoted);
 		}
 		
 		i++;
